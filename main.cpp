@@ -12,9 +12,14 @@ using namespace std;
 
 void A(uint16_t *l, uint16_t *r);
 void L_2(uint16_t *plaintext);
+
+void A_inv(uint16_t *l, uint16_t *r);
+void L_2_inv(uint16_t *ciphertext);
+
 void key_permutation(uint16_t *master_key, uint16_t key_state);
 void key_schedule(uint16_t subkeys[][2*ROUNDS_PER_STEPS], uint16_t *master_key);
 void sparx_encrypt(uint16_t *x, uint16_t k[][2*ROUNDS_PER_STEPS]);
+void sparx_decrypt(uint16_t *x, uint16_t k[][2*ROUNDS_PER_STEPS]);
 
 #define ROTL(x, n) (((x) << n) | ((x) >> (16 - (n))))
 #define SWAP(x, y) tmp = x; x = y; y = tmp
@@ -55,16 +60,40 @@ void sparx_encrypt(uint16_t *plaintext, uint16_t subkey[][2*ROUNDS_PER_STEPS]){
     cout<< endl;
 }
 
+void sparx_decrypt(uint16_t *ciphertext, uint16_t k[][2*ROUNDS_PER_STEPS]){
+    for (int i=0 ; i<N_BRANCHES ; i++){
+        ciphertext[2*i] ^= k[N_BRANCHES*N_STEPS][2*i];
+        ciphertext[(2*i)+1] ^= k[N_BRANCHES*N_STEPS][(2*i)+1];
+    }
+    for (int s=N_STEPS-1 ; s >= 0 ; s--){
+        L_2_inv(ciphertext);
+
+        for (int i=0 ; i<N_BRANCHES ; i++) {
+            for (int r = ROUNDS_PER_STEPS - 1; r >= 0; r--) {
+                A_inv(ciphertext+ (2*i), ciphertext+ (2*i)+1);
+                ciphertext[2*i] ^= k[(N_BRANCHES *s)+i][2*r];
+                ciphertext[(2*i)+ 1] ^= k[(N_BRANCHES *s )+ i][(2*r) + 1];
+            }
+        }
+    }
+
+    cout<< "plaintext: ";
+    for (int j=0; j<K_SIZE; j++){
+        cout<< hex<< ciphertext[j]<< " ";
+    }
+}
+
 int main(){
     uint16_t master_key[2*K_SIZE]= {0x0011, 0x2233, 0x4455, 0x6677, 0x8899, 0xaabb, 0xccdd, 0xeeff};
     uint16_t subkey [N_BRANCHES*N_STEPS+1][2*ROUNDS_PER_STEPS] = {{0}}; //17row, 6col
 
     uint16_t plaintext[K_SIZE] = {0x0123, 0x4567, 0x89ab, 0xcdef};
-    // 2bbe f152 01f5 5f98
+    uint16_t ciphertext[K_SIZE] = {0x2bbe, 0xf152, 0x01f5, 0x5f98};
 
     key_schedule(subkey, master_key);
 
     sparx_encrypt(plaintext, subkey); //output ciphertext
+    sparx_decrypt(plaintext, subkey); //output ciphertext
 
     return 0;
 }
@@ -80,6 +109,13 @@ void A(uint16_t *l, uint16_t *r){
 
 }
 
+void A_inv(uint16_t *l, uint16_t *r){
+    (*r) ^= (*l);
+    (*r) = ROTL((*r), 14); //16-2
+    (*l) -= (*r);
+    (*l) = ROTL((*l), 7); //16-9
+}
+
 void L_2(uint16_t *plaintext){
 //    cout<< "before L2: "<< hex<< plaintext[0] << " "<< plaintext[1] << " "<< plaintext[2] << " "<< plaintext[3] << endl;
 
@@ -93,13 +129,23 @@ void L_2(uint16_t *plaintext){
 
 }
 
+void L_2_inv(uint16_t *ciphertext){
+    uint16_t tmp;
+    SWAP(ciphertext[1], ciphertext[3]);
+    SWAP(ciphertext[0], ciphertext[2]);
+
+    tmp = ROTL(ciphertext[0] ^ ciphertext[1], 8);
+    ciphertext[3] ^= ciphertext[1] ^ tmp;
+    ciphertext[2] ^= ciphertext[0] ^ tmp;
+
+}
+
+
 void key_schedule(uint16_t subkeys[][2*ROUNDS_PER_STEPS], uint16_t *master_key){
     for (int a=0 ; a<(N_BRANCHES*N_STEPS+1) ; a++){
 //        cout<< a << "----- ";
-
         for (int b=0 ; b<2*ROUNDS_PER_STEPS ; b++){
             subkeys[a][b] = master_key[b];
-
 //            cout<< hex<< subkeys[a][b]<< " ";
 
         }
@@ -153,8 +199,6 @@ void key_permutation(uint16_t *master_key, uint16_t key_state){
     }
     master_key[0] = tmp_0;
     master_key[1] = tmp_1;
-
-    // ccdd ef00 4433 ccff 8 3376
 
 //    cout<< "after key perm------";
 //    for (int i=0; i< 8; i++){
